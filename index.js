@@ -4,7 +4,7 @@ import bodyParser from "body-parser";
 const app = express();
 app.use(bodyParser.json());
 
-const VERIFY_TOKEN = "my_verify_token"; // You will set this in WhatsApp Cloud API
+const VERIFY_TOKEN = 83291; // You will set this in WhatsApp Cloud API
 
 // Webhook verification (GET)
 app.get("/webhook", (req, res) => {
