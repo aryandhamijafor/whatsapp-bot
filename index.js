@@ -1,80 +1,103 @@
 import express from "express";
-import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
 
-// Your WhatsApp API credentials
-const token = "EAAO4XijEvhMBPDq76X1tdjJ1bZCZCztlIB3ZBeVZA0cwkZAkVeAFMmLRayMZB98igNOu9LPiuhJYGJkng5hJN0QpcpF6VTR8H22d7iYDtkQ1xhsKEPTMqAK41DaON6wAGigZCZBYftSvDsSlM9vWCpZC1H33F0K5N6ExuPvaNEAiwkbHdDeUnKgDjPJjkWiNDJEBMeBtlZCcuOZB1ATypdaTZB7cNwkibI0aoUm6kHyziVvuH7b0IwZDZD"; // Replace with your permanent access token
-const phone_number_id = "695311820339259"; // Replace with your phone number ID
+// Config from environment (set these in Render)
+const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || "v21.0";
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const TEMPLATE_NAME = process.env.TEMPLATE_NAME || "language_selection";
+const TEMPLATE_LANGUAGE = process.env.TEMPLATE_LANGUAGE || "en_US";
+const TEMPLATE_PARAMS_RAW = process.env.TEMPLATE_PARAMS || ""; // optional comma-separated params
 
-// Verify webhook (for initial setup in Meta)
-app.get("/webhook", (req, res) => {
-  const verify_token = "abc123shubdham"; // same token you set in WhatsApp Cloud API dashboard
-  const mode = req.query["hub.mode"];
-  const challenge = req.query["hub.challenge"];
-  const tokenParam = req.query["hub.verify_token"];
-
-  if (mode && tokenParam) {
-    if (mode === "subscribe" && tokenParam === verify_token) {
-      console.log("Webhook verified ✅");
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
-  }
-});
-
-// Handle incoming messages
-app.post("/webhook", async (req, res) => {
-  try {
-    console.log("Webhook received:", JSON.stringify(req.body, null, 2));
-
-    if (
-      req.body.object &&
-      req.body.entry &&
-      req.body.entry[0].changes &&
-      req.body.entry[0].changes[0].value.messages &&
-      req.body.entry[0].changes[0].value.messages[0]
-    ) {
-      const message = req.body.entry[0].changes[0].value.messages[0];
-      const from = message.from; // sender's WhatsApp number
-
-      // Send a free-form text reply
-      await sendTextMessage(from, "Hello! I got your message ✅");
-    }
-
-    res.sendStatus(200);
-  } catch (error) {
-    console.error("Error in webhook processing:", error);
-    res.sendStatus(500);
-  }
-});
-
-// Function to send a free-form text message
-async function sendTextMessage(to, text) {
-  const url = `https://graph.facebook.com/v20.0/${phone_number_id}/messages`;
-
+// Helper: build template payload (adds body params if provided)
+function buildTemplatePayload(to) {
   const payload = {
     messaging_product: "whatsapp",
-    to: to,
-    text: { body: text }
+    to,
+    type: "template",
+    template: {
+      name: TEMPLATE_NAME,
+      language: { code: TEMPLATE_LANGUAGE }
+    }
   };
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+  const params = TEMPLATE_PARAMS_RAW
+    .split(",")
+    .map(p => p.trim())
+    .filter(Boolean);
 
-  const data = await response.json();
-  console.log("Message sent:", data);
+  if (params.length > 0) {
+    payload.template.components = [
+      {
+        type: "body",
+        parameters: params.map(p => ({ type: "text", text: p }))
+      }
+    ];
+  }
+
+  return payload;
 }
 
-// Start the Express server
-app.listen(10000, () => {
-  console.log("Webhook is listening on port 10000 🚀");
+// Webhook verification (Meta)
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("Webhook verified");
+    return res.status(200).send(challenge);
+  }
+  return res.sendStatus(403);
 });
+
+// Incoming messages — auto-send template reply
+app.post("/webhook", async (req, res) => {
+  try {
+    console.log("Webhook payload:", JSON.stringify(req.body, null, 2));
+
+    const entry = req.body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const messages = changes?.value?.messages;
+
+    if (messages && messages.length > 0) {
+      const incoming = messages[0];
+      const from = incoming.from; // dynamic recipient (sender of the message)
+      const text = incoming.text?.body || "";
+
+      // Optional: log inbound message
+      console.log(`Incoming from ${from}: ${text}`);
+
+      // Build payload for the template (uses TEMPLATE_PARAMS if you set them)
+      const payload = buildTemplatePayload(from);
+
+      // Send template
+      const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await resp.json();
+      console.log("Template send response:", JSON.stringify(data, null, 2));
+    }
+  } catch (err) {
+    console.error("Error processing webhook:", err);
+  }
+
+  // Acknowledge Meta
+  res.sendStatus(200);
+});
+
+// quick healthcheck
+app.get("/", (req, res) => res.send("WhatsApp bot running"));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
