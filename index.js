@@ -1,107 +1,93 @@
 import express from "express";
+import bodyParser from "body-parser";
 import axios from "axios";
 
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
-// ---------- CONFIG (from Render environment variables) ----------
-const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || "v21.0";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN; // accept either name
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-const TEMPLATE_NAME = process.env.TEMPLATE_NAME || "language_selection";
-const TEMPLATE_LANGUAGE = process.env.TEMPLATE_LANGUAGE || "en_US";
+// Send a template message
+async function sendTemplate(to, templateName) {
+  try {
+    const url = `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`;
 
-// static params for {{2}}..{{5}} (set in Render env)
-const TEMPLATE_PARAM_2 = process.env.TEMPLATE_PARAM_2 || "Broadband Installation";
-const TEMPLATE_PARAM_3 = process.env.TEMPLATE_PARAM_3 || "2025-08-15";
-const TEMPLATE_PARAM_4 = process.env.TEMPLATE_PARAM_4 || "10:00 AM";
-const TEMPLATE_PARAM_5 = process.env.TEMPLATE_PARAM_5 || "12:00 PM";
-// -----------------------------------------------------------------
+    const payload = {
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: "en_US" }
+      }
+    };
 
-if (!VERIFY_TOKEN || !WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
-  console.warn("WARNING: One or more required env vars missing: VERIFY_TOKEN, WHATSAPP_TOKEN (or WHATSAPP_ACCESS_TOKEN), PHONE_NUMBER_ID");
+    const response = await axios.post(url, payload, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    console.log(`✅ Template '${templateName}' sent to ${to}`, response.data);
+  } catch (error) {
+    console.error(`❌ Error sending template '${templateName}':`, error.response?.data || error.message);
+  }
 }
 
-// Webhook verification (Meta)
+// Webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verified");
-    return res.status(200).send(challenge);
+  if (mode && token && mode === "subscribe" && token === VERIFY_TOKEN) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
-  return res.sendStatus(403);
 });
 
-// Receive messages and reply with template ({{1}} dynamic from contact name)
+// Handle webhook events
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("Webhook payload:", JSON.stringify(req.body, null, 2));
+    const body = req.body;
 
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const messages = value?.messages;
+    if (body.object) {
+      const entry = body.entry?.[0];
+      const changes = entry?.changes?.[0];
+      const value = changes?.value;
+      const message = value?.messages?.[0];
 
-    if (messages && messages.length > 0) {
-      const msg = messages[0];
-      const from = msg.from; // sender number
+      if (message) {
+        const from = message.from; // sender's phone number
 
-      // get name from contacts array; fallback to phone number if missing
-      const contactName = value?.contacts?.[0]?.profile?.name || from;
+        // If it's a button reply
+        if (message.type === "button") {
+          const buttonText = message.button?.text;
+          console.log(`📌 Button clicked: ${buttonText}`);
 
-      // Build parameters exactly matching your template placeholders {{1}}..{{5}}
-      const bodyParams = [
-        { type: "text", text: contactName },       // {{1}} - dynamic
-        { type: "text", text: TEMPLATE_PARAM_2 },  // {{2}} - env
-        { type: "text", text: TEMPLATE_PARAM_3 },  // {{3}} - env
-        { type: "text", text: TEMPLATE_PARAM_4 },  // {{4}} - env
-        { type: "text", text: TEMPLATE_PARAM_5 }   // {{5}} - env
-      ];
-
-      const payload = {
-        messaging_product: "whatsapp",
-        to: from,
-        type: "template",
-        template: {
-          name: TEMPLATE_NAME,
-          language: { code: TEMPLATE_LANGUAGE },
-          components: [
-            {
-              type: "body",
-              parameters: bodyParams
-            }
-          ]
+          if (buttonText === "Confirm") {
+            await sendTemplate(from, "hello_world");
+          } else if (buttonText === "Reschedule") {
+            await sendTemplate(from, "track_my_order_test");
+          } else {
+            console.log("⚠️ Unknown button text received");
+          }
         }
-      };
-
-      const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
-
-      const resp = await axios.post(url, payload, {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 15000
-      });
-
-      console.log("Template send response:", JSON.stringify(resp.data, null, 2));
+      }
     }
-  } catch (err) {
-    // better error logging so we can diagnose quickly
-    console.error("Error processing webhook / sending template:", err.response?.data || err.message || err);
-  }
 
-  // always ack to Meta
-  res.sendStatus(200);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("Webhook processing error:", err);
+    res.sendStatus(500);
+  }
 });
 
-// health
-app.get("/", (req, res) => res.send("WhatsApp bot (template) running"));
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+// Start server
+app.listen(3000, () => {
+  console.log("🚀 Server is running on port 3000");
+});
