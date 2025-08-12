@@ -47,61 +47,51 @@ app.get("/webhook", (req, res) => {
 });
 
 // main webhook receiver
-app.post("/webhook", async (req, res) => {
-  try {
-    console.log("Incoming webhook:", JSON.stringify(req.body, null, 2));
+app.post('/webhook', (req, res) => {
+    const body = req.body;
 
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const messages = value?.messages;
+    console.log("Incoming webhook:", JSON.stringify(body, null, 2));
 
-    if (!messages || messages.length === 0) {
-      // nothing to do
-      return res.sendStatus(200);
+    if (body.object) {
+        if (body.entry && body.entry[0].changes && body.entry[0].changes[0].value.messages) {
+
+            const messages = body.entry[0].changes[0].value.messages;
+            const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
+
+            messages.forEach((message) => {
+                const from = message.from; // sender phone number
+
+                // --- 1. Button Click Events ---
+                if (message.type === 'button') {
+                    const buttonPayload = message.button.payload;
+                    console.log(`Button clicked: ${buttonPayload}`);
+
+                    if (buttonPayload === 'CONFIRM_INPUT') {
+                        sendTemplateMessage(phone_number_id, from, 'hello_world', 'en_US');
+                    } else if (buttonPayload === 'RESCHEDULE_INPUT') {
+                        sendTemplateMessage(phone_number_id, from, 'track_my_order_test', 'en_US');
+                    } else {
+                        console.log("Unknown button payload:", buttonPayload);
+                    }
+                }
+
+                // --- 2. Normal Text Messages ---
+                else if (message.type === 'text') {
+                    const msg_body = message.text.body;
+                    console.log(`Received message from ${from}: ${msg_body}`);
+
+                    // Send the language selection template for ANY text
+                    sendTemplateMessage(phone_number_id, from, 'language_selection', 'en_US');
+                }
+            });
+
+            res.sendStatus(200);
+        } else {
+            res.sendStatus(404);
+        }
+    } else {
+        res.sendStatus(404);
     }
-
-    const msg = messages[0];
-    const from = msg.from; // sender phone (no +)
-    const contactName = value?.contacts?.[0]?.profile?.name || from;
-
-    // If user clicked a button
-    if (msg.type === "button") {
-      const payload = (msg.button?.payload || msg.button?.text || "").trim();
-      console.log(`Button payload received: "${payload}" from ${from}`);
-
-      if (payload === "Confirm") {
-        await sendTemplate(from, CONFIRM_TEMPLATE, FOLLOWUP_LANG);
-      } else if (payload === "Reschedule") {
-        await sendTemplate(from, RESCHEDULE_TEMPLATE, FOLLOWUP_LANG);
-      } else {
-        console.log("Unknown button payload, ignoring:", payload);
-      }
-
-      return res.sendStatus(200);
-    }
-
-    // If message is text (or any other type), send initial language_selection template
-    if (msg.type === "text" || msg.type === "image" || msg.type === "audio" || msg.type === "video") {
-      // Build body parameters exactly matching {{1}}..{{5}}
-      const bodyParams = [
-        { type: "text", text: contactName },       // {{1}} dynamic
-        { type: "text", text: TEMPLATE_PARAM_2 },  // {{2}} static
-        { type: "text", text: TEMPLATE_PARAM_3 },  // {{3}} static
-        { type: "text", text: TEMPLATE_PARAM_4 },  // {{4}} static
-        { type: "text", text: TEMPLATE_PARAM_5 }   // {{5}} static
-      ];
-
-      await sendTemplate(from, LANGUAGE_TEMPLATE_NAME, LANGUAGE_TEMPLATE_LANG, bodyParams);
-      return res.sendStatus(200);
-    }
-
-    // default ack
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("Error processing webhook:", err.response?.data || err.message || err);
-    res.sendStatus(500);
-  }
 });
 
 // Helper: send template message
