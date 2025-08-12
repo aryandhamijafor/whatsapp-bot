@@ -10,17 +10,11 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || process.env.WHATSAPP_VERIFY_TOK
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-// Language-selection template (sent on any incoming text)
+// Language-selection template
 const LANGUAGE_TEMPLATE_NAME = process.env.LANGUAGE_TEMPLATE_NAME || "language_selection";
 const LANGUAGE_TEMPLATE_LANG = process.env.LANGUAGE_TEMPLATE_LANG || "en_US";
 
-// Static params for placeholders {{2}}..{{5}} (editable in Render)
-const TEMPLATE_PARAM_2 = process.env.TEMPLATE_PARAM_2 || "Broadband Installation";
-const TEMPLATE_PARAM_3 = process.env.TEMPLATE_PARAM_3 || "2025-08-15";
-const TEMPLATE_PARAM_4 = process.env.TEMPLATE_PARAM_4 || "10:00 AM";
-const TEMPLATE_PARAM_5 = process.env.TEMPLATE_PARAM_5 || "12:00 PM";
-
-// Follow-up templates for button choices (can override in Render)
+// Follow-up templates for button choices
 const CONFIRM_TEMPLATE = process.env.CONFIRM_TEMPLATE || "hello_world";
 const RESCHEDULE_TEMPLATE = process.env.RESCHEDULE_TEMPLATE || "track_my_order_test";
 const FOLLOWUP_LANG = process.env.FOLLOWUP_LANG || "en_US";
@@ -30,7 +24,7 @@ if (!VERIFY_TOKEN || !WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
   console.warn("WARNING: Missing one or more required env vars: VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID");
 }
 
-// health route (so visiting root doesn't show "Cannot GET /")
+// health route
 app.get("/", (req, res) => res.send("WhatsApp bot (template flow) running"));
 
 // webhook verification for Meta
@@ -48,50 +42,50 @@ app.get("/webhook", (req, res) => {
 
 // main webhook receiver
 app.post('/webhook', (req, res) => {
-    const body = req.body;
+  const body = req.body;
 
-    console.log("Incoming webhook:", JSON.stringify(body, null, 2));
+  console.log("Incoming webhook:", JSON.stringify(body, null, 2));
 
-    if (body.object) {
-        if (body.entry && body.entry[0].changes && body.entry[0].changes[0].value.messages) {
+  if (body.object) {
+    if (body.entry && body.entry[0].changes && body.entry[0].changes[0].value.messages) {
 
-            const messages = body.entry[0].changes[0].value.messages;
-            const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
+      const messages = body.entry[0].changes[0].value.messages;
+      const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
 
-            messages.forEach((message) => {
-                const from = message.from; // sender phone number
+      messages.forEach((message) => {
+        const from = message.from; // sender phone number
 
-                // --- 1. Button Click Events ---
-                if (message.type === 'button') {
-                    const buttonPayload = message.button.payload;
-                    console.log(`Button clicked: ${buttonPayload}`);
+        // --- 1. Button Click Events ---
+        if (message.type === 'button') {
+          const buttonPayload = message.button.payload;
+          console.log(`Button clicked: ${buttonPayload}`);
 
-                    if (buttonPayload === 'CONFIRM_INPUT') {
-                        sendTemplateMessage(phone_number_id, from, 'hello_world', 'en_US');
-                    } else if (buttonPayload === 'RESCHEDULE_INPUT') {
-                        sendTemplateMessage(phone_number_id, from, 'track_my_order_test', 'en_US');
-                    } else {
-                        console.log("Unknown button payload:", buttonPayload);
-                    }
-                }
-
-                // --- 2. Normal Text Messages ---
-                else if (message.type === 'text') {
-                    const msg_body = message.text.body;
-                    console.log(`Received message from ${from}: ${msg_body}`);
-
-                    // Send the language selection template for ANY text
-                    sendTemplateMessage(phone_number_id, from, 'language_selection', 'en_US');
-                }
-            });
-
-            res.sendStatus(200);
-        } else {
-            res.sendStatus(404);
+          if (buttonPayload === 'CONFIRM_INPUT') {
+            sendTemplate(from, CONFIRM_TEMPLATE, FOLLOWUP_LANG);
+          } else if (buttonPayload === 'RESCHEDULE_INPUT') {
+            sendTemplate(from, RESCHEDULE_TEMPLATE, FOLLOWUP_LANG);
+          } else {
+            console.log("Unknown button payload:", buttonPayload);
+          }
         }
+
+        // --- 2. Normal Text Messages ---
+        else if (message.type === 'text') {
+          const msg_body = message.text.body;
+          console.log(`Received message from ${from}: ${msg_body}`);
+
+          // Send the language selection template for ANY text
+          sendTemplate(from, LANGUAGE_TEMPLATE_NAME, LANGUAGE_TEMPLATE_LANG);
+        }
+      });
+
+      res.sendStatus(200);
     } else {
-        res.sendStatus(404);
+      res.sendStatus(404);
     }
+  } else {
+    res.sendStatus(404);
+  }
 });
 
 // Helper: send template message
