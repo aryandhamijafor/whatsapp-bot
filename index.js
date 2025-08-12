@@ -66,10 +66,10 @@ app.post("/webhook", async (req, res) => {
 
     if (buttonText.includes("confirm")) {
       // Step 2a → Send confirmation template with hardcoded params
-      await sendTemplate(from, "confirm_template", "en_US");
+      await sendTemplate(from, "hello_world", "en_US");
     } else if (buttonText.includes("reschedule")) {
       // Step 2b → Send reschedule template with hardcoded params
-      await sendTemplate(from, "reschedule_template", "en_US");
+      await sendTemplate(from, "track_my_order_test", "en_US");
     }
   }
 
