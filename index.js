@@ -16,8 +16,8 @@ async function sendTemplate(to, templateName, languageCode = "en_US") {
     { type: "text", text: "test1" },
     { type: "text", text: "test2" },
     { type: "text", text: "test3" },
-    { type: "text", text: "test4" },
-    { type: "text", text: "test5" }
+    { type: "text", text: "test4" }
+    //{ type: "text", text: "test5" }
   ];
 
   const payload = {
